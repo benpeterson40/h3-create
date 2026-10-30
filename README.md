@@ -191,6 +191,7 @@ The object recipe is on by default; put `{"enabled": false}` in `data/swap_recip
 - Close-ups that show only hands can keep the original's sleeves.
 - Very fast montages (many sub-second shots) vary from take to take.
 - The check is good but not perfect: in one test it passed a part where the original's ponytail showed for a moment during a spin.
+- Object swaps: a line written for the whole clip can leak into a shot where it doesn't apply (in one 480p test, "caught in the dog's mouth" from the last shot made H3 draw a dog holding the pizza in a shot where the frisbee lies alone on the sand), and the check can miss it.
 - The LLM and H3 cannot share a 16 GB card, so they take turns; a bigger card would let them overlap.
 
 ## Responsible use
