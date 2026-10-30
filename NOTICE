@@ -1,0 +1,14 @@
+H3 Create
+Copyright (c) 2026 The H3 Create authors. The source code in this repository is released under the MIT License (see LICENSE).
+
+This repository contains NO model weights. The app downloads nothing by itself; scripts/download_models.py fetches the
+models from their own Hugging Face pages, and each model stays under its own license (see THIRD_PARTY.md). In particular:
+
+MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright © 2026 MiniMax. All Rights Reserved.
+Powered by MiniMax H3. Read the license and its Acceptable Use Policy before you download or use the model:
+https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE (note its Applicable Territory section).
+
+server/workflows.py builds ComfyUI graphs that mirror the official Comfy-Org MiniMax H3 templates using native ComfyUI nodes.
+
+The example clips and pictures in examples/ are AI-generated (Qwen-Image 2.1 and MiniMax H3); every person, animal and place
+in them is synthetic. They are provided under CC BY 4.0 for testing this app, subject to the licenses of the models that made them.

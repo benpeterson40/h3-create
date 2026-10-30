@@ -1,0 +1,9 @@
+# runtime data (uploads, jobs, logs) and local settings
+/data/
+.env
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.tmp
+.DS_Store

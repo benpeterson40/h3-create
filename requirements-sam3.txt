@@ -1,0 +1,6 @@
+# SAM 3 helpers (tools/sam3_matte.py, tools/sam3_multi.py): Objects swap outlines, Remove Background, Reframe.
+# Install torch for your CUDA first (https://pytorch.org), then:  pip install -r requirements-sam3.txt
+# Tested: torch 2.14.1 (cu130), transformers 5.19.0. facebook/sam3 is gated: request access on its Hugging Face page, then `hf auth login`.
+transformers>=5.0
+opencv-python-headless>=4.10
+numpy>=1.26

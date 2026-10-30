@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H3 Create</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23d7ff2e'/%3E%3Cpath d='M12 9l11 7-11 7z' fill='%23101113'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/static/app.css?v=r2">
+</head>
+<body>
+<div class="app">
+  <aside class="panel" id="panel">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="create">Create Video</button>
+      <button class="tab" data-tab="edit">Edit Video</button>
+      <button class="tab" data-tab="control">Motion Control</button>
+    </nav>
+
+    <div class="panel-scroll" id="createPanel">
+      <div class="seg" role="radiogroup" aria-label="Mode">
+        <button class="seg-btn active" data-mode="motion"><span class="ico" data-ico="motion"></span>Motion transfer</button>
+        <button class="seg-btn" data-mode="swap"><span class="ico" data-ico="swap"></span>Objects swap</button>
+      </div>
+
+      <section class="card upload" id="uploadCard" tabindex="0" aria-label="Source video">
+        <div class="frame" id="frame">
+          <div class="frame-empty" id="frameEmpty">
+            <span class="ico big" data-ico="upload"></span>
+            <div class="fe-title">Upload a video</div>
+            <div class="fe-sub">MP4 · MOV · WEBM — drop it here or click</div>
+            <button class="link" id="openLibraryFromCard">or pick one from the Motion Library</button>
+          </div>
+          <video id="srcVideo" muted loop playsinline hidden></video>
+          <button class="frame-x" id="removeVideo" title="Remove video" hidden><span class="ico" data-ico="x"></span></button>
+        </div>
+        <div class="src-meta" id="srcMeta" hidden></div>
+        <input type="file" id="videoInput" accept="video/*" hidden>
+      </section>
+
+      <section class="card refs" id="refsCard" aria-label="Reference pictures">
+        <div class="ref-grid" id="refGrid">
+          <button class="ref-add" id="addRef" title="Add pictures"><span class="plus"><span class="ico" data-ico="plus"></span></span></button>
+        </div>
+        <div class="refs-hint" id="refsHint"></div>
+        <input type="file" id="imageInput" accept="image/*" multiple hidden>
+      </section>
+
+      <button class="card style-row" id="styleRow">
+        <span class="style-stack" id="styleStack"><i></i><i></i><i></i></span>
+        <span class="style-label">Style <span class="badge-new">New</span></span>
+        <span class="style-apply" id="styleApply">Apply <span class="ico" data-ico="chev"></span></span>
+      </button>
+
+      <section class="card prompt-card">
+        <div class="prompt-head">
+          <span>Prompt</span>
+          <label class="toggle" title="Write your own prompt"><input type="checkbox" id="promptOn" checked><span></span></label>
+        </div>
+        <div class="prompt-body" id="promptBody">
+          <textarea id="prompt" rows="5" spellcheck="true"></textarea>
+          <div class="mention-pop" id="mentionPop" hidden></div>
+        </div>
+        <div class="prompt-auto" id="promptAuto" hidden>
+          <span class="ico" data-ico="spark"></span>
+          <span><b id="llmName">Qwen3.8</b> writes the prompt from your video and pictures.</span>
+        </div>
+      </section>
+
+      <section class="card settings">
+        <div class="set-row">
+          <span class="set-label">Length</span>
+          <div class="pills" data-setting="duration">
+            <button data-v="5s" class="active">First 5 s</button><button data-v="full">Full video</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <span class="set-label">Quality</span>
+          <div class="pills" data-setting="quality">
+            <button data-v="standard" class="active">768p</button><button data-v="fast">480p · fast</button>
+          </div>
+        </div>
+        <label class="set-row check">
+          <span class="set-label">Check &amp; auto-fix<small>Qwen compares the result with your video and pictures, retakes once if it's off</small></span>
+          <span class="toggle"><input type="checkbox" id="auditOn" checked><span></span></span>
+        </label>
+        <label class="set-row check">
+          <span class="set-label">Keep original audio</span>
+          <span class="toggle"><input type="checkbox" id="audioOn" checked><span></span></span>
+        </label>
+      </section>
+      <div class="panel-pad"></div>
+    </div>
+
+    <div class="panel-scroll" id="editPanel" hidden></div>
+    <div class="panel-scroll" id="controlPanel" hidden></div>
+
+    <div class="panel-soon" id="soonPanel" hidden>
+      <span class="ico big" data-ico="clock"></span>
+      <div class="fe-title" id="soonTitle">Coming soon</div>
+      <div class="fe-sub">This part of the studio isn't built yet. Create Video is ready to use.</div>
+    </div>
+
+    <div class="gen-wrap">
+      <button class="generate" id="generate" disabled>
+        <span>Generate</span><span class="cost"><span class="ico" data-ico="spark4"></span><span id="cost">~9 min</span></span>
+      </button>
+      <div class="gen-why" id="genWhy"></div>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <header class="topnav">
+      <button class="nav-btn" data-open="history"><span class="ico" data-ico="folder"></span>History</button>
+      <button class="nav-btn" data-open="ratings"><span class="ico" data-ico="star"></span>Ratings</button>
+      <button class="nav-btn" data-open="library"><span class="ico" data-ico="aperture"></span>Motion Library</button>
+      <button class="nav-btn" data-open="styles"><span class="ico" data-ico="wand"></span>Styles <span class="badge-new">New</span></button>
+      <button class="nav-btn boxed" data-open="how"><span class="ico" data-ico="book"></span>How it works</button>
+      <span class="status-dot" id="statusDot" title="Engine status"></span>
+    </header>
+    <div class="canvas" id="canvas">
+      <div class="hero" id="hero">
+        <div class="hero-text">
+          <div class="hero-kicker" id="heroKicker">Motion transfer</div>
+          <h1 id="heroTitle">One video. Any cast.</h1>
+          <p id="heroSub">Upload any video, add pictures of your characters, objects or a new place, and we re-shoot it with them — same moves, same camera, same timing.</p>
+          <ol class="steps" id="heroSteps"></ol>
+        </div>
+        <div class="hero-cards" id="heroCards"></div>
+      </div>
+      <div class="feed" id="feed"></div>
+      <section class="ratings" id="ratings" aria-label="Ratings" hidden></section>
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true">
+  <div class="modal-head"><h2 id="modalTitle"></h2><button class="icon-btn" id="modalClose" title="Close"><span class="ico" data-ico="x"></span></button></div>
+  <div class="modal-body" id="modalBody"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js?v=r2"></script>
+<script src="/static/edit.js?v=r2"></script>
+<script src="/static/control.js?v=r2"></script>
+<script src="/static/ratings.js?v=r12"></script>
+</body>
+</html>
