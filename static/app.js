@@ -48,7 +48,7 @@ const MODES = {
   },
 };
 
-const state = { mode: "motion", video: null, images: [], promptOn: true, prompts: { motion: "", swap: "" }, style: "none", duration: "5s", quality: "standard", audit: true, keepAudio: true };
+const state = { mode: "motion", video: null, images: [], promptOn: true, prompts: { motion: "", swap: "" }, style: "none", duration: "5s", quality: "standard", mt_style: "standard", audit: true, keepAudio: true };
 let currentTab = "create";
 let styles = [], jobs = [], focusJob = null, llmName = "Qwen3.8", pollTimer = null, libraryCache = null;
 
@@ -77,7 +77,7 @@ function setMode(m) {
   $("#heroKicker").textContent = M.kicker; $("#heroTitle").textContent = M.title; $("#heroSub").textContent = M.sub;
   $("#heroSteps").innerHTML = M.steps.map(s => `<li>${esc(s)}</li>`).join("");
   $("#prompt").placeholder = M.placeholder; $("#prompt").value = state.prompts[m] || "";
-  $("#refsHint").innerHTML = M.hint; save(); refreshGen();
+  $("#refsHint").innerHTML = M.hint; $("#mtStyleRow").hidden = m !== "motion"; save(); refreshGen();
 }
 
 /* ------------------------------------------------------------------ source video */
@@ -202,6 +202,9 @@ function bindSettings() {
 }
 function paintSettings() {
   $$(".pills").forEach(p => $$("button", p).forEach(b => b.classList.toggle("active", b.dataset.v === state[p.dataset.setting])));
+  $("#mtStyleHint").textContent = state.mt_style === "lowpoly"
+    ? "Old place turned into low-poly ground + grey; H3 paints in the new place"
+    : "H3 re-shoots the video with your pictures";
   $("#auditOn").checked = state.audit; $("#audioOn").checked = state.keepAudio;
 }
 function estimate() {
@@ -226,7 +229,7 @@ async function generate() {
   if ($("#generate").disabled) return;
   const body = {
     mode: state.mode, video: state.video.id, images: state.images.map(i => i.id), prompt_on: state.promptOn, prompt: state.promptOn ? (state.prompts[state.mode] || "") : "",
-    style: state.style, duration: state.duration, quality: state.quality, audit: state.audit, keep_audio: state.keepAudio,
+    style: state.style, duration: state.duration, quality: state.quality, mt_style: state.mt_style, audit: state.audit, keep_audio: state.keepAudio,
   };
   $("#generate").disabled = true;
   try {
@@ -317,7 +320,7 @@ function auditBadge(j) {
 function jobChips(j) {
   const P = j.params || {};
   if (!j.tool || j.tool === "create")
-    return `<span class="chip tool">${j.mode === "swap" ? "Objects swap" : "Motion transfer"}</span><span class="chip">${j.duration === "full" ? "Full video" : "5 s"} · ${j.quality === "fast" ? "480p" : "768p"}</span>`;
+    return `<span class="chip tool">${j.mode === "swap" ? "Objects swap" : j.mt_style === "lowpoly" ? "Motion transfer · low-poly" : "Motion transfer"}</span><span class="chip">${j.duration === "full" ? "Full video" : "5 s"} · ${j.quality === "fast" ? "480p" : "768p"}</span>`;
   if (j.tool === "improve") return `<span class="chip tool">Improved</span><span class="chip">${j.mode === "swap" ? "Objects swap" : "Motion transfer"} · ${j.duration === "full" ? "full video" : "5 s"}</span>`;
   const extra = { edit: j.quality === "fast" ? "480p" : "768p", extend: `${P.direction === "prequel" ? "Prequel" : "Sequel"} · ${P.duration || 5}s`, reframe: `${P.aspect || "9:16"} · ${P.quality || "720p"}`,
     upscale: `${(P.resolution || "2k").toUpperCase()} · ${P.creativity || "precise"}`, rmbg: P.output === "mask" ? "alpha mask" : "cutout video",

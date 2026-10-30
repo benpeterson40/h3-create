@@ -152,6 +152,7 @@ class NewJob(BaseModel):
     style: str = "none"
     duration: str = "5s"            # 5s | full
     quality: str = "standard"       # standard (768p) | fast (480p)
+    mt_style: str = "standard"      # Motion transfer: standard | lowpoly (the old place turned low-poly + grey before H3 paints the new one)
     audit: bool = True
     keep_audio: bool = True
     project: dict | None = None     # test-set label for the Ratings view ({set, code, title, order, note}); the web UI never sends it
@@ -163,7 +164,7 @@ def _next_version(code):
 
 
 def job_view(j, full=False):
-    v = {k: j.get(k) for k in ("id", "created", "mode", "status", "stage", "progress", "duration", "quality", "style", "audit", "prompt_on", "prompt",
+    v = {k: j.get(k) for k in ("id", "created", "mode", "mt_style", "status", "stage", "progress", "duration", "quality", "style", "audit", "prompt_on", "prompt",
                                "error", "seconds", "frames", "canvas", "video_name")}
     v["result"] = url(j.get("result")); v["poster"] = url(j.get("poster")); v["source_thumb"] = url(j.get("video_thumb"))
     v["tool"] = j.get("tool", "create"); v["tool_name"] = TOOL_NAMES.get(v["tool"], v["tool"]); v["params"] = j.get("params", {})
@@ -208,6 +209,7 @@ def create_job(b: NewJob):
                         "images": [r["path"] for r in imgs], "image_thumbs": [r.get("thumb_path") for r in imgs], "prompt_on": b.prompt_on,
                         "prompt": b.prompt, "style": b.style, "duration": b.duration if b.duration in ("5s", "full") else "5s",
                         "quality": b.quality if b.quality in ("standard", "fast") else "standard", "audit": b.audit, "keep_audio": b.keep_audio,
+                        "mt_style": b.mt_style if b.mode == "motion" and b.mt_style in ("standard", "lowpoly") else "standard",
                         **({"project": {**b.project, "version": _next_version(b.project.get("code"))}} if b.project and b.project.get("code") else {})})
     work.put(jid)
     return job_view(store.get(jid))

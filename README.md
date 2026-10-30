@@ -20,7 +20,7 @@ An open-source take on the paid "recast / character swap" video features, built 
 | Tab | What you give it | What you get |
 |---|---|---|
 | **Create Video → Objects swap** | a video, up to 8 pictures, one line of text | the same video with people, animals, places or things replaced, every shot, every cut, original sound |
-| **Create Video → Motion transfer** | a motion video + a picture of a character, object or place | the character from the picture performing the video's motion |
+| **Create Video → Motion transfer** | a motion video + a picture of a character, object or place | the character from the picture performing the video's motion; Method **Standard** or **Low-poly place** (rebuilds the old place as low-poly ground + grey, best for moving to a new place) |
 | **Motion Control** | a motion video (3–30 s) + a character picture | the character doing the motion, in the video's scene or in the picture's own place |
 | **Edit Video** | a video (+ a prompt or a painted mask) | Edit (change one thing), Extend (sequel / prequel), Reframe (any aspect, the crop follows the subject), Remove Background, SDR → HDR, Depth Map |
 
@@ -44,7 +44,12 @@ MiniMax H3 that, together, make one-line edits of full-length, multi-shot videos
 
 H3 copies whatever is in the source, so the app fixes the source first instead of hoping the prompt wins:
 
-- **A pinned first frame (Motion transfer / Motion Control).** The motion video's person is cut out (SAM 3) as a pose reference,
+- **Low-poly place (Motion transfer → Method → Low-poly place).** Before rendering, each shot is rebuilt: the moving people and things
+  stay real (SAM 3), the ground becomes a coarse low-poly mesh tracked through the shot (MoGe-2 normals + `server/lowpoly.py`, about 420
+  tracked points), and everything else turns flat grey. H3 then paints the new place into the grey. The old place's look is gone, but its
+  slopes, steps, edges, camera move and parallax stay, so a skater still lands on the right ledge and a car still drives on the road.
+  No pinned first frame is needed. In tests it fixed videos where the old place kept coming back (skatepark, toy car, a dancing couple).
+- **A pinned first frame (Motion transfer, Standard / Motion Control).** The motion video's person is cut out (SAM 3) as a pose reference,
   Qwen-Image makes candidate first frames with your character in that pose, Qwen3.8 rates them for identity, pose and background,
   and the chosen frame is pinned as frame 0. With "the picture's place" an empty plate of that place is made first.
 - **The old place taken out.** When a new place keeps losing to the old one, the shot's source window is rebuilt with the subject

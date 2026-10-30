@@ -1089,6 +1089,133 @@ class Job:
             self.store.seg_done(self.id, k, chosen)
         self.set(status="done", stage="Done", progress=1.0, result=final, poster=os.path.join(jdir, "poster.jpg"), seconds=round(time.time() - t0))
 
+    def run_lowpoly(self, job, jdir, segs, src, F, t0, spec, seed0, meta):
+        """Motion transfer, "Low-poly place" (the 2026-10-24 recipe, data/runs/fastvideo.py with no start stills): each shot's source is
+        prepared before H3 sees it - the moving subjects stay real (SAM 3), the ground becomes a coarse low-poly mesh that keeps its slopes,
+        steps and edges (MoGe-2 normals + lowpoly.py), everything else is flat grey - and H3 paints the new place into the grey, with no
+        pinned first frame. Close-up shots describe the people only by the parts in view, and get one re-render if a head shows up."""
+        from .lowpoly import lowpoly
+        W, H = job["canvas"]
+        loc = next((s_ for s_ in spec.get("subjects", []) if s_.get("kind") == "location" and isinstance(s_.get("picture"), int)
+                    and 1 <= s_["picture"] <= len(job["images"])), None)
+        subs = [s_ for s_ in spec.get("subjects", []) if isinstance(s_.get("picture"), int) and s_.get("kind") != "location"]
+        names = []
+        for s_ in subs:
+            r = re.sub(r"\s*\b(in|from|of)\s+<Video \d+>.*$", "", rn_plain(s_.get("replaces") or s_.get("kind") or "subject")).strip(" ,.") or "the subject"
+            names.append(r if re.match(r"^(the|a|an|both|two|his|her|their)\b", r, re.I) else "the " + r)
+        who = (names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]) if names else "the moving people and things"
+        place = (f"the place from <Picture {loc['picture']}>", rn_plain(loc.get("description"))) if loc else \
+                ("the place described in the prompt", rn_plain((spec.get("scene") or "")))
+        shots = []
+        for sg in segs:   # the shots' source windows at the canvas size, padded with the last frame
+            k = sg["k"]; L = sg["length"]; end_k = min(F, sg.get("end", sg["start"] + L)); real = read_frames(src, range(sg["start"], end_k))
+            S = [cover_resize(f, W, H) for f in real + [real[-1]] * max(0, L - len(real))][:L]
+            win = os.path.join(jdir, f"seg{k}_src.mp4"); write_video(S, win, crf=12)
+            write_video(real, os.path.join(jdir, f"seg{k}_src_real.mp4"), crf=12)
+            shots.append(dict(k=k, L=L, n=end_k - sg["start"], S=S, win=win,
+                              seg=next((g for g in spec.get("segments", []) if str(g.get("index")) == str(k)), {})))
+        # 1 - mattes: subjects (SAM 3, one load for every shot, every 2nd frame) and the ground (MoGe-2 normals), then the prepared videos
+        tools.gpu_take(self)
+        ws = [w for w in subject_words(spec).split("|") if w]; ws = [w for w in ws if not any(w != o and w in o for o in ws)] or ["person"]
+        tools.run_proc(self, [tools.PY["sam3"], "-I", os.path.join(tools.TOOLS_DIR, "sam3_multi.py"), os.path.join(jdir, "lp_subj"), "2", "|".join(ws)]
+                       + [sh["win"] for sh in shots], 0.09, 0.25, "Cutting out the moving subjects")
+        tools.run_proc(self, [tools.PY["moge"], "-I", os.path.join(tools.TOOLS_DIR, "moge_ground.py"), os.path.join(jdir, "lp_ground")]
+                       + [sh["win"] for sh in shots], 0.25, 0.32, "Finding the ground")
+        self.set(stage="Turning the old place into low-poly", progress=0.33)
+        for vi, sh in enumerate(shots):
+            k = sh["k"]
+            subj = [cv2.cvtColor(m, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0 for m in read_frames(os.path.join(jdir, "lp_subj", str(vi), "matte.mp4"))]
+            grd = [cv2.cvtColor(m, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0 for m in read_frames(os.path.join(jdir, "lp_ground", str(vi), "matte.mp4"))]
+            LP = lowpoly(sh["S"], None, 420); prep = []
+            for i, f in enumerate(sh["S"]):
+                a = cv2.GaussianBlur((cv2.resize(subj[min(i, len(subj) - 1)], (W, H)) > 0.4).astype(np.float32), (0, 0), 1.5)[..., None]
+                g = cv2.GaussianBlur((cv2.resize(grd[min(i, len(grd) - 1)], (W, H)) > 0.4).astype(np.float32), (0, 0), 2.0)[..., None]
+                b = 127.0 * (1 - g) + LP[i].astype(np.float32) * g
+                prep.append((b * (1 - a) + f.astype(np.float32) * a).astype(np.uint8))
+            sh["prep"] = os.path.join(jdir, f"seg{k}_lowpoly.mp4"); write_video(prep, sh["prep"], crf=12)
+        self.log(f"low-poly place: {len(shots)} shot(s) prepared (subjects real: {'|'.join(ws)}; ground low-poly; the rest flat grey)")
+        # 2 - close-ups: the people described only by the parts in view (a face in the text gets drawn into a feet close-up)
+        use_llm = llm.available()
+        for sh in shots:
+            part = str(sh["seg"].get("closeup") or "").strip(); sh["desc"] = {}
+            if not use_llm or not part or part.lower() in ("none", "null", "false", "no"):
+                continue
+            for s_ in subs:
+                if s_.get("kind") not in ("person", "animal"):
+                    continue
+                try:
+                    r = llm.ask([{"type": "text", "text": f"The full description: {rn_plain(s_.get('description'))}\nThe shot is a close-up of: {part}. "
+                                                          "The reference picture (describe only that part of it):"}, llm.img_part(job["images"][s_["picture"] - 1], 512)],
+                                system='Write ONE sentence describing only what a close-up of that part shows - clothes, shoes, colours, held or ridden '
+                                       'things - starting "Only the ... are in the frame:". Never mention the face, head, hair or anything above the '
+                                       'frame. Reply with JSON only: {"desc": "..."}', max_tokens=160, temperature=0.0)
+                    if str(r.get("desc") or "").strip():
+                        sh["desc"][s_["tag"]] = str(r["desc"]).strip()
+                except Exception as e:
+                    self.log(f"close-up description failed: {str(e)[:120]}")
+        # 3 - H3 renders from the prepared videos (no pinned first frame)
+        llm.down(); n = len(shots); out = []
+        for i_, sh in enumerate(shots):
+            if self.cancelled():
+                raise comfy.Cancelled()
+            k = sh["k"]; spec2 = copy.deepcopy(spec); part = str(sh["seg"].get("closeup") or "").strip()
+            note = (f"In <Video 1> only {who} and the ground are shown; everything else is flat grey. Paint {place[0]} into the grey: {place[1]} - "
+                    "photoreal; the ground becomes the ground of that place, with the same slopes, steps and edges.")
+            if part and part.lower() not in ("none", "null", "false", "no"):
+                note += (f" The whole shot is a close-up at the height of the {part}: only the {part} are in the frame; the upper body and the "
+                         "face stay above the top edge of the frame, out of view, the whole time.")
+            spec2["_corrections"] = {str(k): note}
+            for s_ in spec2.get("subjects", []):
+                if s_.get("tag") in sh["desc"]:
+                    s_["description"] = sh["desc"][s_["tag"]]
+            pics = closeup_refs(self, job, spec, k, job["images"])
+            prompt, pics = segment_prompt(spec2, k, pics, job.get("style"))
+            base = 0.35 + 0.55 * i_ / n
+            self.set(stage=f"Rendering shot {i_ + 1} of {n}", progress=base)
+            seed = seed0 + 1000 * k + 991
+            files = comfy.run(h3.build(prompt, sh["prep"], pics, W, H, sh["L"], seed),
+                              lambda st, x, *_: x is not None and self.set(stage=f"Rendering shot {i_ + 1} of {n}", progress=base + 0.55 / n * x), self.cancelled)
+            sh["out"] = os.path.join(jdir, f"seg{k}_a0.mp4"); shutil.copy(next(f for f in files if f.endswith(".mp4")), sh["out"])
+            sh["prompt"], sh["pics"], sh["seed"] = prompt, pics, seed
+        # 3b - close-ups: a head or a small whole-body copy that must not be there -> one re-render with another seed
+        again = []
+        if use_llm:
+            for sh in shots:
+                part = str(sh["seg"].get("closeup") or "").strip()
+                if not part or part.lower() in ("none", "null", "false", "no"):
+                    continue
+                fr_ = read_frames(sh["out"]); pick = [fr_[i] for i in (2, len(fr_) // 3, 2 * len(fr_) // 3, len(fr_) - 3)]
+                try:
+                    v = llm.ask([{"type": "text", "text": f"Frames of a close-up of {part}:"}] + [llm.img_part(f, 512) for f in pick],
+                                system='Reply with JSON only: {"head": true if a face, a head or a small whole-body copy of a person can be seen in any frame, '
+                                       'else false, "why": "short"}', max_tokens=120, temperature=0.0)
+                except Exception:
+                    v = {}
+                if v.get("head") is True:
+                    again.append(sh); self.log(f"shot {sh['k']}: a head showed up in a close-up ({str(v.get('why', ''))[:100]}) - one re-render")
+            llm.down()
+        for sh in again:
+            sh["seed"] = seed0 + 1000 * sh["k"] + 7777; self.set(stage=f"Re-rendering close-up shot {sh['k'] + 1}", progress=0.92)
+            files = comfy.run(h3.build(sh["prompt"], sh["prep"], sh["pics"], W, H, sh["L"], sh["seed"]), None, self.cancelled)
+            shutil.copy(next(f for f in files if f.endswith(".mp4")), sh["out"])
+        for sh in shots:
+            out += read_frames(sh["out"])[:sh["n"]]
+            rec = {"attempt": 0, "seed": sh["seed"], "video": sh["out"], "prompt": sh["prompt"], "pictures": sh["pics"], "lowpoly": sh["prep"]}
+            self.store.add_attempt(self.id, sh["k"], rec); self.store.seg_done(self.id, sh["k"], rec)
+        # 4 - join + sound
+        self.set(stage="Finishing", progress=0.97)
+        silent = os.path.join(jdir, "result_silent.mp4"); write_video(out, silent)
+        final = os.path.join(jdir, "result.mp4")
+        if job.get("keep_audio", True) and meta["audio"]:
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", silent, "-i", job["video"], "-map", "0:v", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                                "-b:a", "192k", "-shortest", final])
+            if r.returncode != 0:
+                durable.copy_file(silent, final)
+        else:
+            durable.copy_file(silent, final)
+        cv2.imwrite(os.path.join(jdir, "poster.jpg"), out[0], [cv2.IMWRITE_JPEG_QUALITY, 88])
+        self.set(status="done", stage="Done", progress=1.0, result=final, poster=os.path.join(jdir, "poster.jpg"), seconds=round(time.time() - t0))
+
     def run_create(self):
         job = self.d; jdir = self.store.dir(self.id); os.makedirs(jdir, exist_ok=True)
         t0 = time.time()
@@ -1203,6 +1330,9 @@ class Job:
         seed0 = int(job.get("seed") or random.randint(1, 2 ** 31)); self.set(seed=seed0)
         if swap_create and not people and swap_recipe_on():
             return self.run_swap_recipe(job, jdir, segs, src, F, t0)
+        if job.get("mode") == "motion" and job.get("mt_style") == "lowpoly" and job.get("tool", "create") == "create" and not srcC:
+            self.set(canvas=[W, H]); job["canvas"] = [W, H]
+            return self.run_lowpoly(job, jdir, segs, src, F, t0, spec, seed0, meta)
         if people:
             self.log(f"swap of {recipe_skip(spec) or 'a person'}: the 2026-10-22 way - {len(segs)} part(s) of up to 5 s, each rendered whole (the "
                      "model follows the source's cuts itself), no pasted first frames, Check with one retake, no shot repairs")
