@@ -24,17 +24,47 @@ An open-source take on the paid "recast / character swap" video features, built 
 | **Motion Control** | a motion video (3–30 s) + a character picture | the character doing the motion, in the video's scene or in the picture's own place |
 | **Edit Video** | a video (+ a prompt or a painted mask) | Edit (change one thing), Extend (sequel / prequel), Reframe (any aspect, the crop follows the subject), Remove Background, SDR → HDR, Depth Map |
 
-What makes it more than a single workflow:
+## What's different about this approach
 
-- **One line in, a whole edit out.** Qwen3.8-27B (vision) turns "Replace the man with @image1 and move them to the village in @image3"
-  into a shot-by-shot plan: who is where in every shot, when the cuts are, what each picture replaces, costumes per shot, places.
-- **Two paths, picked automatically.** People, animals and places go through H3 + the Character Swap LoRA in up-to-5-second parts
-  rendered whole. Things (a phone, a hat, a pineapple) go through an object recipe: SAM 3 outlines each object, each shot gets its own prompt.
-- **It checks its own work.** Every finished part is compared with the source at the same moments: the original person left over,
-  extra copies, wrong costume, the old place coming back, objects that never changed. A failed part is retaken with a targeted fix
-  (for example: the original's long hair leaked into a short-haired replacement → the retake erases that hair from the source first).
-- **Full length, real cuts.** Long clips are split at scene cuts where possible; inside a shot each part continues from the last 5 frames
-  of the previous one and the joins are cross-faded. The source audio is put back.
+Most open recast workflows are one graph: a video, a picture and a prompt go into the model once. H3 Create puts three ideas around
+MiniMax H3 that, together, make one-line edits of full-length, multi-shot videos work on a single 16 GB card.
+
+### 1. A local vision LLM (Qwen3.8-27B) directs, prepares and checks the whole job
+
+- **Plans the edit.** Qwen3.8-27B (vision, via llama.cpp) watches the clip at 2 fps with cut detection and turns one line
+  ("Replace the man with @image1 and move them to the village in @image3") into a shot-by-shot plan: who is where in every shot,
+  what each picture replaces, costumes per shot, places, and a separate prompt for each part that names only the subjects in it.
+- **Checks every part against the source.** At the same moments it compares source and result: the original person left over,
+  extra copies, wrong costume, the old place coming back, objects that never changed. A failed part gets one targeted retake, not a reroll.
+- **Picks between takes.** Where the app makes candidates (first frames, retakes, object fixes), the LLM rates them and the best one is kept.
+- **Shares the GPU.** The LLM and H3 take turns on the card: the app frees ComfyUI's VRAM before the LLM loads and stops the LLM before
+  the next render.
+
+### 2. The source video is prepared before H3 sees it
+
+H3 copies whatever is in the source, so the app fixes the source first instead of hoping the prompt wins:
+
+- **A pinned first frame (Motion transfer / Motion Control).** The motion video's person is cut out (SAM 3) as a pose reference,
+  Qwen-Image makes candidate first frames with your character in that pose, Qwen3.8 rates them for identity, pose and background,
+  and the chosen frame is pinned as frame 0. With "the picture's place" an empty plate of that place is made first.
+- **The old place taken out.** When a new place keeps losing to the old one, the shot's source window is rebuilt with the subject
+  cut out and laid over the new place, which is moved with the source camera (pans, tilts, zooms), so H3 keeps the new place.
+- **Things that would leak, erased.** For example, long hair or braids are erased from the source (SAM 3 outlines, filled in) before a
+  person is turned into an animal, robot or helmeted figure, so H3 has no flying braids to copy.
+
+### 3. Two swap paths: people and places vs small things
+
+The app routes each subject automatically (`server/pipeline.py`, `recipe/`):
+
+- **People, animals and places** go through H3 + the Character Swap LoRA in parts of up to 5 seconds, each **rendered whole**.
+  Long clips are split at scene cuts where possible; inside a shot each part continues from the last 5 frames of the previous one,
+  the joins are cross-faded, and the source audio is put back.
+- **Things** (a phone, a hat, a frisbee) go through an object recipe. SAM 3 finds and outlines each object, Qwen3.8 picks the
+  instances the prompt means, and every shot gets its own prompt and reference sheet. An automatic fixer (`recipe/autofix.py`)
+  then looks for leftovers, strays and misses. It can redraw just those boxes with H3 (a small masked-latent node,
+  `comfyui_nodes/h3studio_masked_edit.py`) or erase a leftover with MiniMax-Remover and let H3 refine the spot, then keep the best take.
+
+Small objects need tight, per-shot control; people and places need whole, continuous renders. Running both through one path broke one or the other.
 
 ## How it works
 
